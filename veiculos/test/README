@@ -1,0 +1,142 @@
+
+# Semáforo de Veículos (Zephyr RTOS + FRDM-KL25Z)
+
+Três threads independentes (verde, amarelo e vermelho) com **mutex** para exclusão mútua e uma variável `turn` que impõe a ordem **verde → amarelo → vermelho**.
+
+## 1. Hardware
+
+| Item | Valor |
+|---|---|
+| Placa | NXP FRDM-KL25Z |
+| Verde | `led0` |
+| Vermelho | `led2` |
+| Amarelo | `led0` + `led2` acesos juntos |
+| Sinal de sincronismo (saída) | PTD4 (D2): nível alto enquanto o vermelho dos carros está aceso |
+
+## 2. Requisitos
+
+| ID | Requisito |
+|---|---|
+| V1 | Verde aceso por 3 s. |
+| V2 | Amarelo aceso por 1 s. |
+| V3 | Vermelho aceso por 4 s. |
+| V4 | Três threads independentes, com exclusão mútua entre os LEDs (mutex). |
+| V5 | Sincronismo com os pedestres: o verde dos pedestres só acende com o vermelho dos carros. |
+
+## 3. Como funciona
+
+- Cada thread trava o mutex, confere se `turn` é a sua vez, acende a cor, espera (`k_msleep`), apaga, passa a vez para a próxima cor e libera o mutex. O `turn` é necessário porque, com três threads, o mutex sozinho não garante a ordem.
+- A variável `owner` guarda quem está com os LEDs. Se uma thread entrar com `owner` ocupado, o código imprime `ERRO: exclusao mutua violada`.
+- Os `#define TEST_ONLY_GREEN`, `TEST_ONLY_YELLOW` e `TEST_ONLY_RED` compilam só uma thread, para o teste de unidade.
+- Todos os eventos são registrados na serial com `k_uptime_get()` (ms).
+
+## 4. Testes (Modelo V)
+
+Tolerância adotada: ±10 ms sobre o tempo nominal.
+
+### T1.1: Unidade, verde (V1)
+- **Pré-condição:** `TEST_ONLY_GREEN` ativo.
+- **Pós-condição:** só o verde acende, por ≈ 3000 ms, sem `ERRO`.
+- **Resultado:** **PASS**
+
+```
+CARRO VERDE ON    t=4
+CARRO VERDE OFF   t=3006
+CARRO VERDE ON    t=3013
+CARRO VERDE OFF   t=6015
+CARRO VERDE ON    t=6022
+CARRO VERDE OFF   t=9024
+```
+Duração do verde: 3002 ms em todas as medições.
+
+### T1.2: Unidade, amarelo (V2)
+- **Pré-condição:** `TEST_ONLY_YELLOW` ativo.
+- **Pós-condição:** amarelo (verde + vermelho juntos) por ≈ 1000 ms, sem `ERRO`.
+- **Resultado:** **PASS**
+
+```
+SINAL AMARELO ON  t=4
+SINAL AMARELO OFF t=1006
+SINAL AMARELO ON  t=1013
+SINAL AMARELO OFF t=2015
+SINAL AMARELO ON  t=2022
+SINAL AMARELO OFF t=3024
+```
+Duração do amarelo: 1002 ms em todas as medições.
+
+### T1.3: Unidade, vermelho (V3)
+- **Pré-condição:** `TEST_ONLY_RED` ativo.
+- **Pós-condição:** só o vermelho acende, por ≈ 4000 ms, sem `ERRO`.
+- **Resultado:** **PASS**
+
+```
+SINAL VERMELHO ON  t=4
+SINAL VERMELHO OFF t=4006
+SINAL VERMELHO ON  t=4013
+SINAL VERMELHO OFF t=8015
+SINAL VERMELHO ON  t=8023
+SINAL VERMELHO OFF t=12025
+```
+Duração do vermelho: 4002 ms em todas as medições.
+
+> Nos testes isolados, a mesma cor volta a acender 7 a 8 ms depois de apagar (espera de 5 ms da thread mais o overhead do mutex). O LED parece sempre aceso, mas o log confirma o ciclo.
+
+### T2.1: Integração, três threads (V1 a V4)
+- **Pré-condição:** nenhum `TEST_ONLY_...` ativo.
+- **Etapas:** gravar, reiniciar e observar o log por pelo menos 1 minuto.
+- **Pós-condição:** ordem verde → amarelo → vermelho, tempos de 3, 1 e 4 s, sem `ERRO`.
+- **Resultado:** **PASS**
+
+```
+CARRO VERDE ON      t=4
+CARRO VERDE OFF     t=3006
+CARRO AMARELO ON    t=3008
+CARRO AMARELO OFF   t=4010
+CARRO VERMELHO ON   t=4012
+CARRO VERMELHO OFF  t=8015
+CARRO VERDE ON      t=8017
+CARRO VERDE OFF     t=11019
+CARRO AMARELO ON    t=11021
+CARRO AMARELO OFF   t=12024
+CARRO VERMELHO ON   t=12026
+CARRO VERMELHO OFF  t=16029
+```
+
+| Fase | Duração medida | Esperado |
+|---|---|---|
+| Verde | 3002 ms | 3000 ms |
+| Amarelo | 1002 a 1003 ms | 1000 ms |
+| Vermelho | 4003 ms | 4000 ms |
+| Ciclo completo (verde → verde) | ≈ 8013 ms | 8000 ms |
+
+A troca entre cores leva 2 ms. Nenhuma mensagem de erro apareceu.
+
+### T2.2: Integração, teste negativo sem mutex (V4)
+- **Objetivo:** provar que o mutex é necessário.
+- **Pré-condição:** `k_mutex_lock` e `k_mutex_unlock` comentados nas três threads (alteração temporária, revertida).
+- **Pós-condição esperada:** violação da exclusão mútua.
+- **Resultado:** **falha não reproduzida** (o sistema continuou funcionando normalmente).
+- **Análise:** a variável `turn` já impede que mais de uma thread trabalhe ao mesmo tempo, porque cada thread só age quando é a sua vez. Ela funciona como uma segunda proteção, e o mutex protege principalmente a leitura e a escrita de `turn` e `owner`. Como cada thread só consulta `turn` a cada 5 ms e a janela de concorrência é de microssegundos, a corrida é muito rara em teste. O mutex continua sendo necessário por correção e requisito, mesmo quando a falha não aparece na prática.
+
+### T3.1: Sistema, sincronismo com os pedestres (V5)
+- **Pré-condição:** as duas placas ligadas por fio em PTD4 e GND, reiniciadas juntas.
+- **Etapas:** observar os dois logs por pelo menos 1 minuto.
+- **Pós-condição esperada:** o verde dos pedestres só acende com o vermelho dos carros; nenhum `ERRO: sincronismo violado`.
+- **Resultado:** _(preencher)_
+
+### T3.2: Sistema, teste negativo com fio desconectado (V5)
+- **Pós-condição esperada:** o verde dos pedestres nunca acende.
+- **Resultado:** _(preencher)_
+
+## 5. Resumo
+
+| Teste | Nível | Requisitos | Resultado |
+|---|---|---|---|
+| T1.1 | Unidade | V1 | PASS |
+| T1.2 | Unidade | V2 | PASS |
+| T1.3 | Unidade | V3 | PASS |
+| T2.1 | Integração | V1 a V4 | PASS |
+| T2.2 | Integração (negativo) | V4 | Falha não reproduzida (ver análise) |
+| T3.1 | Sistema | V5 | _(pendente)_ |
+| T3.2 | Sistema (negativo) | V5 | _(pendente)_ |
+

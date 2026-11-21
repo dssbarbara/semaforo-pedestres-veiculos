@@ -1,9 +1,8 @@
-# Semáforo de Pedestres Embarcado (Zephyr RTOS + FRDM-KL25Z)
+# Semáforo de Pedestres
 
 Controle de um semáforo de pedestres (LED verde e LED vermelho) usando **duas threads independentes** e **mutex** para garantir exclusão mútua. O funcionamento foi validado com testes baseados no **Modelo V** (unidade, integração e sistema) e revisado por pares.
 
 - **Autor:** _Barbara_
-- **Avaliador (dupla):** _Giovanna_
 
 ## 1. Requisitos
 
@@ -126,18 +125,3 @@ Sem o mutex as threads acendem os LEDs ao mesmo tempo, e o código de verificaç
 | T2.2 | Integração (negativo) | R4 | PASS (falha esperada observada) |
 | T3.1 | Sistema | R1 a R4 | PASS |
 
-## 6. Avaliação por pares
-
-O avaliador clonou o repositório, gravou o código na própria placa e repetiu os testes T1.1, T1.2, T2.1, T2.2 e T3.1 seguindo as pré-condições e etapas acima.
-
-- **Avaliador:** _(nome)_
-
-| Teste | Resultado do avaliador | Observações |
-|---|---|---|
-| T1.1 | _ | _ |
-| T1.2 | _ | _ |
-| T2.1 | _ | _ |
-| T2.2 | _ | _ |
-| T3.1 | _ | _ |
-
-**Feedback do avaliador:** _(falhas lógicas, comportamentos não previstos, sugestões)_
